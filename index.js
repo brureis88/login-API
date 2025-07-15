@@ -1,0 +1,1 @@
+// A inicialização do servidor foi movida para server.js 
