@@ -9,6 +9,21 @@ const users = [
   },
 ];
 
+// Códigos de redefinição mockados (em produção seria um banco de dados)
+const codigosRedefinicao = new Map();
+
+// Gerar código aleatório de 6 dígitos
+const gerarCodigo = () => {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+};
+
+// Simular envio de email (mockado)
+const enviarEmailMock = (email, codigo) => {
+  console.log(`📧 Email enviado para ${email}:`);
+  console.log(`🔑 Seu código de redefinição é: ${codigo}`);
+  console.log(`⏰ Este código expira em 10 minutos`);
+};
+
 exports.login = (req, res) => {
   const { username, password } = req.body;
   const user = users.find(u => u.username === username);
@@ -34,7 +49,7 @@ exports.login = (req, res) => {
   }
 };
 
-exports.esqueciSenha = (req, res) => {
+exports.solicitarRedefinicao = (req, res) => {
   const { username } = req.body;
   const user = users.find(u => u.username === username);
 
@@ -42,7 +57,91 @@ exports.esqueciSenha = (req, res) => {
     return res.status(404).json({ mensagem: 'Usuário não encontrado.' });
   }
 
+  // Gerar código único
+  const codigo = gerarCodigo();
+  const email = `${username}@exemplo.com`; // Email mockado
+  
+  // Armazenar código com timestamp (expira em 10 minutos)
+  codigosRedefinicao.set(username, {
+    codigo,
+    timestamp: Date.now(),
+    usado: false
+  });
+
+  // Simular envio de email
+  enviarEmailMock(email, codigo);
+
+  return res.status(200).json({ 
+    mensagem: 'Código de redefinição enviado para o e-mail cadastrado.',
+    email: email, // Apenas para demonstração
+    codigo: codigo // Apenas para demonstração (em produção não seria retornado)
+  });
+};
+
+exports.validarCodigo = (req, res) => {
+  const { username, codigo } = req.body;
+  
+  const dadosCodigo = codigosRedefinicao.get(username);
+  
+  if (!dadosCodigo) {
+    return res.status(400).json({ mensagem: 'Nenhum código de redefinição solicitado para este usuário.' });
+  }
+
+  if (dadosCodigo.usado) {
+    return res.status(400).json({ mensagem: 'Este código já foi utilizado.' });
+  }
+
+  // Verificar se o código expirou (10 minutos)
+  const agora = Date.now();
+  const tempoExpiracao = 10 * 60 * 1000; // 10 minutos em millisegundos
+  
+  if (agora - dadosCodigo.timestamp > tempoExpiracao) {
+    codigosRedefinicao.delete(username);
+    return res.status(400).json({ mensagem: 'Código expirado. Solicite um novo código.' });
+  }
+
+  if (dadosCodigo.codigo !== codigo) {
+    return res.status(400).json({ mensagem: 'Código inválido.' });
+  }
+
+  // Marcar código como usado
+  dadosCodigo.usado = true;
+  codigosRedefinicao.set(username, dadosCodigo);
+
+  return res.status(200).json({ mensagem: 'Código válido. Você pode redefinir sua senha.' });
+};
+
+exports.redefinirSenha = (req, res) => {
+  const { username, codigo, novaSenha } = req.body;
+  
+  const dadosCodigo = codigosRedefinicao.get(username);
+  
+  if (!dadosCodigo || !dadosCodigo.usado) {
+    return res.status(400).json({ mensagem: 'Código inválido ou não validado.' });
+  }
+
+  if (dadosCodigo.codigo !== codigo) {
+    return res.status(400).json({ mensagem: 'Código inválido.' });
+  }
+
+  const user = users.find(u => u.username === username);
+  if (!user) {
+    return res.status(404).json({ mensagem: 'Usuário não encontrado.' });
+  }
+
+  // Redefinir senha e desbloquear usuário
+  user.password = novaSenha;
   user.tentativas = 0;
   user.bloqueado = false;
-  return res.status(200).json({ mensagem: 'Instruções para redefinição de senha enviadas para o e-mail cadastrado.' });
+
+  // Remover código usado
+  codigosRedefinicao.delete(username);
+
+  return res.status(200).json({ mensagem: 'Senha redefinida com sucesso!' });
+};
+
+// Manter compatibilidade com o endpoint antigo
+exports.esqueciSenha = (req, res) => {
+  // Redirecionar para o novo fluxo de redefinição
+  return exports.solicitarRedefinicao(req, res);
 }; 
